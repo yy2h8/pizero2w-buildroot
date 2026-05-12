@@ -1,0 +1,106 @@
+#!/bin/sh
+#
+# Resize root partition on first boot using sfdisk
+#
+
+LOG_TAG="S00resize"
+
+log() {
+    echo "[$LOG_TAG] $1"
+    echo "<6>[$LOG_TAG] $1" > /dev/kmsg 2>/dev/null || true
+}
+
+case "$1" in
+  start)
+    log "Starting partition resize check..."
+
+    if [ -f /var/lib/resize_done ]; then
+      log "Resize already completed, skipping"
+      exit 0
+    fi
+
+    # If resize_pending exists, partition already resized - skip to let S01resize_fs handle it
+    if [ -f /var/lib/resize_pending ]; then
+      log "Partition already resized, waiting for filesystem resize"
+      exit 0
+    fi
+
+    # Check if required tools are available
+    if ! command -v sfdisk >/dev/null 2>&1; then
+      log "ERROR: sfdisk not found"
+      touch /var/lib/resize_done
+      exit 0
+    fi
+
+    # Get the root device and partition number
+    ROOT_PART=$(findmnt / -o source -n 2>/dev/null)
+    if [ -z "$ROOT_PART" ]; then
+      log "ERROR: Failed to find root partition"
+      touch /var/lib/resize_done
+      exit 0
+    fi
+    log "Root partition: $ROOT_PART"
+
+    ROOT_DEV="/dev/$(lsblk -no pkname $ROOT_PART 2>/dev/null)"
+    PART_NUM=$(echo $ROOT_PART | grep -o '[0-9]*$')
+
+    # Safety check - only work on mmcblk0
+    if [ "$ROOT_DEV" != "/dev/mmcblk0" ] || [ -z "$PART_NUM" ]; then
+      log "ERROR: Unexpected root device: $ROOT_DEV"
+      touch /var/lib/resize_done
+      exit 0
+    fi
+
+    # Sync before partition modification
+    log "Syncing filesystems..."
+    sync
+    sleep 1
+
+    # Resize partition using sfdisk
+    # ", +" means: keep same start, expand to use all remaining space
+    log "Resizing partition $PART_NUM to use all available space..."
+    echo ", +" | sfdisk -N $PART_NUM $ROOT_DEV --no-reread --force 2>&1 | while read line; do
+      log "  sfdisk: $line"
+    done
+
+    # Create marker file FIRST, then sync everything
+    log "Creating resize marker..."
+    touch /var/lib/resize_pending
+
+    # Aggressive sync sequence to ensure all data is on disk
+    log "Syncing filesystems (1/3)..."
+    sync
+    sleep 1
+
+    log "Dropping caches..."
+    echo 3 > /proc/sys/vm/drop_caches 2>/dev/null || true
+
+    log "Syncing filesystems (2/3)..."
+    sync
+    sleep 1
+
+    log "Syncing filesystems (3/3)..."
+    sync
+    sleep 2
+
+    # Remount root filesystem read-only before reboot
+    # This ensures all data is flushed and filesystem is clean
+    log "Remounting root filesystem read-only..."
+    mount -o remount,ro / 2>&1 | while read line; do
+      log "  mount: $line"
+    done
+
+    # Final sync after remount
+    sync
+    sleep 1
+
+    log "Rebooting to complete resize..."
+    # Now safe to use reboot -f since filesystem is read-only
+    reboot -f
+    # Fallback - should never reach here
+    sleep 300
+    ;;
+  *)
+    exit 0
+    ;;
+esac

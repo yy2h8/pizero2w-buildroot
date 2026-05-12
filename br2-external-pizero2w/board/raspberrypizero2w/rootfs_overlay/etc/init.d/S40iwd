@@ -1,0 +1,104 @@
+#!/bin/sh
+#
+# Start/stop iwd (iNet Wireless Daemon)
+# Custom version that waits for iwd to be fully ready before returning
+#
+
+DAEMON="iwd"
+PIDFILE="/var/run/$DAEMON.pid"
+
+IWD_ARGS=""
+
+[ -r "/etc/default/$DAEMON" ] && . "/etc/default/$DAEMON"
+
+# Wait for iwd to be fully ready (dbus interface available)
+wait_for_iwd_ready() {
+    local timeout=30
+    local count=0
+
+    # Check immediately first (no sleep)
+    if [ -S /run/dbus/system_bus_socket ] && \
+       busctl --system list 2>/dev/null | grep -q "net.connman.iwd"; then
+        return 0
+    fi
+
+    # Then poll with sleep
+    while [ $count -lt $timeout ]; do
+        sleep 0.5
+        count=$((count + 1))
+        if [ -S /run/dbus/system_bus_socket ] && \
+           busctl --system list 2>/dev/null | grep -q "net.connman.iwd"; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+start() {
+    printf 'Starting %s: ' "$DAEMON"
+
+    # Create required directories
+    mkdir -p /tmp/iwd/hotspot
+    mkdir -p /var/lib/iwd
+
+    # Ensure dbus is running (should already be started by S30dbus)
+    if [ ! -S /run/dbus/system_bus_socket ]; then
+        echo "FAIL (dbus not running)"
+        return 1
+    fi
+
+    start-stop-daemon -b -m -S -q -p "$PIDFILE" -x "/usr/libexec/$DAEMON" \
+        -- $IWD_ARGS
+    status=$?
+
+    if [ "$status" -eq 0 ]; then
+        # Wait for iwd to be fully ready before declaring success
+        # This prevents iwctl segfaults when run immediately after boot
+        if wait_for_iwd_ready; then
+            echo "OK"
+            # Give iwd extra time to connect to configured networks
+            sleep 2
+        else
+            echo "OK (warning: readiness check timed out)"
+            # Still wait a bit for connection attempt
+            sleep 3
+        fi
+    else
+        echo "FAIL"
+    fi
+    return "$status"
+}
+
+stop() {
+    printf 'Stopping %s: ' "$DAEMON"
+    start-stop-daemon -K -q -p "$PIDFILE"
+    status=$?
+    if [ "$status" -eq 0 ]; then
+        echo "OK"
+    else
+        echo "FAIL"
+    fi
+    rm -f "$PIDFILE"
+    return "$status"
+}
+
+restart() {
+    stop
+    sleep 1
+    start
+}
+
+case "$1" in
+    start)
+        start
+        ;;
+    stop)
+        stop
+        ;;
+    restart|reload)
+        restart
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|restart|reload}"
+        exit 1
+esac

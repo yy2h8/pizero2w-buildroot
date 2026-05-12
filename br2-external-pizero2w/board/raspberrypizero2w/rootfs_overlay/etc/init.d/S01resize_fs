@@ -1,0 +1,37 @@
+#!/bin/sh
+#
+# Complete filesystem resize after partition expansion
+#
+
+LOG_TAG="S01resize_fs"
+
+log() {
+    echo "[$LOG_TAG] $1"
+    echo "<6>[$LOG_TAG] $1" > /dev/kmsg 2>/dev/null || true
+}
+
+case "$1" in
+  start)
+    if [ -f /var/lib/resize_pending ]; then
+      log "Resizing filesystem..."
+
+      # Run resize2fs
+      if resize2fs /dev/mmcblk0p2 >/dev/null 2>&1; then
+        log "Filesystem resize complete"
+      else
+        log "ERROR: resize2fs failed"
+      fi
+
+      rm -f /var/lib/resize_pending
+      touch /var/lib/resize_done
+
+      # Sync to ensure changes are written
+      sync
+      sleep 1
+      sync
+    fi
+    ;;
+  *)
+    exit 0
+    ;;
+esac

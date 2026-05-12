@@ -1,0 +1,15 @@
+#!/bin/sh
+# Create /run/lock directory structure early in boot
+# This must run before other services that use /var/lock
+
+case "$1" in
+  start)
+    mkdir -p /run/lock/subsys
+    ;;
+  stop|restart|reload)
+    ;;
+  *)
+    echo "Usage: $0 {start|stop|restart|reload}"
+    exit 1
+    ;;
+esac

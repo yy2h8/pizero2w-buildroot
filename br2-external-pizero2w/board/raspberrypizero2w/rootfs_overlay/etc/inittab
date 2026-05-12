@@ -1,0 +1,24 @@
+# /etc/inittab
+#
+# Copyright (C) 2001 Erik Andersen <andersen@codepoet.org>
+#
+::sysinit:/bin/mount -t proc proc /proc
+::sysinit:/bin/mount -o remount,rw /
+::sysinit:/bin/mkdir -p /dev/pts /dev/shm
+::sysinit:/bin/mount -a
+::sysinit:/sbin/swapon -a
+::sysinit:/bin/hostname -F /etc/hostname
+
+# Start system
+::sysinit:/etc/init.d/rcS
+
+# Serial console (ttyAMA0 - PL011 UART on GPIO 14/15 via miniuart-bt overlay)
+ttyAMA0::respawn:/sbin/getty -L ttyAMA0 115200 vt100
+
+# Shutdown
+::shutdown:/etc/init.d/rcK
+::shutdown:/sbin/swapoff -a
+::shutdown:/bin/umount -a -r
+
+# Ctrl-Alt-Delete
+::ctrlaltdel:/sbin/reboot

@@ -1,0 +1,7 @@
+[http]
+    sslCAInfo = /etc/ssl/certs/ca-certificates.crt
+    sslVerify = true
+[core]
+    editor = vi
+[color]
+    ui = auto

@@ -1,0 +1,1 @@
+console=serial0,115200 root=/dev/mmcblk0p2 rootfstype=ext4 fsck.repair=yes rootwait loglevel=4 brcmfmac.feature_disable=0x82000

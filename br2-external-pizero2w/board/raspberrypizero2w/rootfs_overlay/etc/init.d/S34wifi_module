@@ -1,0 +1,30 @@
+#!/bin/sh
+#
+# Load brcmfmac WiFi module
+#
+
+case "$1" in
+    start)
+        echo "[S34wifi_module] Loading brcmfmac WiFi module..."
+        modprobe brcmfmac
+        if [ $? -eq 0 ]; then
+            echo "[S34wifi_module] brcmfmac module loaded successfully"
+        else
+            echo "[S34wifi_module] ERROR: Failed to load brcmfmac module"
+            exit 1
+        fi
+        ;;
+    stop)
+        echo "[S34wifi_module] Unloading brcmfmac WiFi module..."
+        modprobe -r brcmfmac
+        ;;
+    restart|reload)
+        "$0" stop
+        "$0" start
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|restart}"
+        exit 1
+esac
+
+exit 0

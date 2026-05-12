@@ -1,0 +1,43 @@
+#!/bin/sh
+#
+# WiFi initialization helper - gives SDIO time to initialize
+#
+
+LOG_TAG="S35wifi_init"
+
+log() {
+    echo "[$LOG_TAG] $1"
+    echo "<6>[$LOG_TAG] $1" > /dev/kmsg 2>/dev/null || true
+}
+
+case "$1" in
+  start)
+    log "Initializing WiFi..."
+
+    # Small delay to let SDIO interface stabilize
+    sleep 1
+
+    # Check if wlan0 exists
+    if [ -e /sys/class/net/wlan0 ]; then
+      log "Bringing up wlan0"
+      ip link set wlan0 up
+    else
+      # Wait up to 10 seconds for wlan0 to appear
+      log "Waiting for wlan0..."
+      for i in 1 2 3 4 5 6 7 8 9 10; do
+        sleep 1
+        if [ -e /sys/class/net/wlan0 ]; then
+          log "Bringing up wlan0"
+          ip link set wlan0 up
+          break
+        fi
+      done
+    fi
+
+    if [ ! -e /sys/class/net/wlan0 ]; then
+      log "ERROR: wlan0 not found"
+    fi
+    ;;
+  *)
+    ;;
+esac

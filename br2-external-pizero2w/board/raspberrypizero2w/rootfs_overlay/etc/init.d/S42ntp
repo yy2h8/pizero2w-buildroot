@@ -1,0 +1,112 @@
+#!/bin/sh
+#
+# Sync time via NTP with retry logic and ping test
+#
+
+NTP_LOG="/var/log/ntp.log"
+
+# Logging function
+log() {
+    local msg="[$(date '+%Y-%m-%d %H:%M:%S')] $1"
+    echo "$msg"
+    [ -w "$(dirname "$NTP_LOG")" ] && echo "$msg" >> "$NTP_LOG" 2>/dev/null
+}
+
+# Wait for network to be ready (interface up and IP configured)
+wait_for_network() {
+    local timeout=60
+    local count=0
+
+    while [ $count -lt $timeout ]; do
+        if ip addr show wlan0 2>/dev/null | grep -q 'inet '; then
+            return 0
+        fi
+        sleep 1
+        count=$((count + 1))
+    done
+    return 1
+}
+
+# Test actual internet connectivity with ping
+test_connectivity() {
+    local host="$1"
+    local count=0
+    local max_pings=3
+
+    while [ $count -lt $max_pings ]; do
+        if ping -c 1 -W 2 "$host" >/dev/null 2>&1; then
+            return 0
+        fi
+        count=$((count + 1))
+    done
+    return 1
+}
+
+# Sync time with NTP using retry logic
+sync_time() {
+    local servers="$1"
+    local max_retries=5
+    local base_delay=5
+    local attempt=0
+
+    while [ $attempt -lt $max_retries ]; do
+        attempt=$((attempt + 1))
+
+        if ntpd -q $servers >/dev/null 2>&1; then
+            log "NTP sync successful (attempt $attempt): $(date)"
+            return 0
+        else
+            log "NTP sync attempt $attempt failed"
+            if [ $attempt -lt $max_retries ]; then
+                local delay=$((base_delay * attempt))
+                log "Waiting ${delay}s before retry..."
+                sleep $delay
+            fi
+        fi
+    done
+    return 1
+}
+
+case "$1" in
+    start)
+        log "Starting NTP sync..."
+
+        # Wait for network interface to get IP
+        if ! wait_for_network; then
+            log "ERROR: Network interface did not get IP address within 60s"
+            exit 1
+        fi
+
+        # Test connectivity before attempting NTP
+        if test_connectivity "pool.ntp.org"; then
+            log "Network connectivity confirmed"
+        else
+            log "WARNING: Cannot reach pool.ntp.org, attempting anyway..."
+        fi
+
+        # Try primary NTP servers with retries
+        if sync_time "-p pool.ntp.org -p time.google.com"; then
+            exit 0
+        fi
+
+        # Try fallback NTP server with retries
+        log "Primary servers failed, trying fallback..."
+        if sync_time "-p time.nist.gov"; then
+            exit 0
+        fi
+
+        log "ERROR: All NTP servers failed after multiple attempts"
+        exit 1
+        ;;
+    stop)
+        # Nothing to stop (one-shot mode)
+        ;;
+    restart|reload)
+        "$0" start
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|restart}"
+        exit 1
+esac
+
+exit 0

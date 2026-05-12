@@ -1,0 +1,6 @@
+buildroot/
+
+# WiFi credentials — copy YourNetwork.psk.example to <YourSSID>.psk and fill in your details.
+# Real PSK files must never be committed.
+*.psk
+

@@ -1,0 +1,5 @@
+127.0.0.1	localhost
+127.0.1.1	pizero2w
+
+# IPv6 localhost (disabled but included for completeness)
+::1		localhost ip6-localhost ip6-loopback

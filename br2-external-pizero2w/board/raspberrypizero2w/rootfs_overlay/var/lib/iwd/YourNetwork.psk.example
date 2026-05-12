@@ -1,0 +1,18 @@
+# iwd PSK file — copy this file to <YourSSID>.psk and fill in your details.
+# The filename (without .psk) must exactly match your WiFi network SSID.
+#
+# Example: for a network named "HomeWifi", save as:
+#   rootfs_overlay/var/lib/iwd/HomeWifi.psk
+#
+# Static IP configuration (remove the [IPv4] section to use DHCP instead)
+[IPv4]
+Address=192.168.1.100
+Netmask=255.255.255.0
+Gateway=192.168.1.1
+DNS=192.168.1.1 8.8.8.8
+
+[Settings]
+AutoConnect=true
+
+[Security]
+Passphrase=your-wifi-password
