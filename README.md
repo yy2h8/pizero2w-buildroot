@@ -1,6 +1,6 @@
 # Raspberry Pi Zero 2W - Minimal Buildroot Linux
 
-A size-optimized, python-enabled headless Linux distribution for the Raspberry Pi Zero 2W built with Buildroot 2025.02.x
+A size-optimized, headless Linux distribution for the Raspberry Pi Zero 2W built with Buildroot 2025.02.x — Python development powered by uv at runtime
 
 ## What This Is
 
@@ -13,13 +13,13 @@ This is a deliberately minimal, headless Linux system built for the Raspberry Pi
 - All virtual/tunnel network interfaces (TUN, VETH, GRE, VXLAN, etc.)
 - IPv6, netfilter/iptables, multicast
 - Most kernel debugging infrastructure (KALLSYMS, FTRACE, kprobes, etc.)
-- All Buildroot packages not needed for WiFi+SSH+Python development
+- All Buildroot packages not needed for WiFi+SSH development (Python itself is not baked in; uv installs managed interpreters on demand)
 
 **What remains:**
 - **WiFi only** — the only network interface. The brcmfmac driver is built as a kernel module and loaded at boot via `S34wifi_module`.
 - **SSH via Dropbear** — the sole way to interact with the device after first boot
 - **Static IP** — configured at build time in the iwd PSK file; the device always comes up on a known, predictable address, so `ssh root@<IP>` works immediately after boot
-- **Python 3.12** with pip, SSL, and SQLite for development work
+- **uv / uvx** — fast Python package/project manager; installs prebuilt CPython on-device (`uv python install`), creates venvs, and installs packages (`uv pip install`)
 - **Serial console** — available on GPIO 14/15 as a fallback for debugging
 
 This system has no display, no keyboard input, no mouse — it is intended to be used entirely over SSH. The serial console (UART) is the only non-network access path and is only needed if WiFi fails to connect.
@@ -28,8 +28,8 @@ This system has no display, no keyboard input, no mouse — it is intended to be
 
 - **Buildroot**: 2025.02.12
 - **Linux Kernel**: Raspberry Pi 6.12.y (LTS)
-- **Toolchain**: GCC 13.4.0, musl libc
-- **Python**: 3.12
+- **Toolchain**: GCC 13.4.0, glibc 2.41
+- **Python**: none in the image — managed by uv at runtime (3.10–3.14 prebuilt armv7 CPython available on demand)
 - **Init**: BusyBox init
 
 ---
@@ -121,8 +121,6 @@ cd buildroot
 # Load configuration
 make BR2_EXTERNAL=../br2-external-pizero2w raspberrypizero2w_minimal_defconfig
 
-# Remove legacy flag (temporary workaround)
-sed -i '/^BR2_LEGACY=/d' .config
 
 # Build (use all CPU cores)
 make -j$(nproc)
@@ -135,8 +133,7 @@ make -j$(nproc)
 ### Build Steps Explained
 
 1. **Load defconfig**: Loads the pre-configured Raspberry Pi Zero 2W settings
-2. **Remove legacy flag**: Temporary workaround for Buildroot 2025.02 compatibility
-3. **Build**: Compiles toolchain, kernel, packages, and generates bootable image
+2. **Build**: Compiles toolchain, kernel, packages, and generates bootable image
 
 ### Clean Builds
 
@@ -322,7 +319,6 @@ vim br2-external-pizero2w/configs/raspberrypizero2w_minimal_defconfig
 
 # Reload and build
 make BR2_EXTERNAL=../br2-external-pizero2w raspberrypizero2w_minimal_defconfig
-sed -i '/^BR2_LEGACY=/d' .config
 make
 ```
 
@@ -358,11 +354,11 @@ vim br2-external-pizero2w/board/raspberrypizero2w/post-build.sh
 
 ### Build fails: "legacy configuration"
 
-**Solution**: Remove the BR2_LEGACY flag
-```bash
-sed -i '/^BR2_LEGACY=/d' .config
-make
-```
+This should no longer happen — the defconfig was cleaned of symbols removed
+from Buildroot 2025.02 (`BR2_PACKAGE_RPI_WIFI_FIRMWARE`,
+`BR2_PACKAGE_SQLITE_STAT3`). If it reappears, a symbol in the defconfig was
+renamed/removed upstream: run `make menuconfig`, fix the equivalent option,
+and `make savedefconfig` back into the defconfig.
 
 ### Out of space during build
 
@@ -375,7 +371,8 @@ make
 ## Pre-installed Software
 
 ### Languages
-- Python 3.12 (with pip, SSL, SQLite, zlib, bzip2, curses, readline)
+- uv / uvx 0.12.x (fast Python package and project manager; installs and manages prebuilt armv7 CPython versions on-device, e.g. `uv python install 3.14`)
+- SSL/TLS, SQLite3 CLI, and compression libs (zlib, bzip2, xz) available to any runtime-installed Python
 
 ### Development Tools
 - git (with HTTPS support)
@@ -403,19 +400,14 @@ make
 
 ## Security Notes
 
-⚠️ **This build is optimized for size, NOT security**
-
-**Disabled security features:**
-- Stack smashing protection (SSP)
-- RELRO (relocation read-only)
-- FORTIFY_SOURCE
+**Security hardening enabled** (stack canary `-fstack-protector-strong`, full RELRO + PIE, `_FORTIFY_SOURCE=2`). Trade-off: slightly larger binaries than the previous all-off configuration.
 
 **Recommendations:**
 - Change default password immediately
-- Use for development/prototyping only
-- For production, re-enable security features in defconfig
 
 **No firewall** - netfilter/iptables are disabled for size.
+
+**Locale support**: `en_US.UTF-8` is generated (plus built-in `C`/`C.UTF-8`); non-whitelisted locale data is purged to save space.
 
 ---
 

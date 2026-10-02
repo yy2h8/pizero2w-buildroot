@@ -8,11 +8,11 @@ This file provides guidance to LLM agents when working with code in this reposit
 
 1. **BR2_EXTERNAL name**: `BR2_EXTERNAL_PIZERO2W` (defined in external.desc)
    - All defconfig paths use `$(BR2_EXTERNAL_BR2_EXTERNAL_PIZERO2W_PATH)` - note the double naming
-2. **Buildroot version**: 2025.02.12 (requires `sed -i '/^BR2_LEGACY=/d' .config` workaround)
+2. **Buildroot version**: 2025.02.12 (defconfig is free of legacy symbols; no `BR2_LEGACY` workaround needed)
 3. **Kernel**: Linux 6.12.y (Raspberry Pi fork), modules enabled (`CONFIG_MODULES=y`) but only for brcmfmac WiFi driver (loaded at boot by `S34wifi_module`)
-4. **Toolchain**: GCC 13.4.0, musl libc (not glibc)
-5. **Python**: 3.12
-6. **Image size**: ~129 MB total, ~96 MB root filesystem
+4. **Toolchain**: GCC 13.4.0, glibc 2.41 (switched from musl — required by the prebuilt uv binaries; also enables manylinux armv7 wheels and uv-managed Pythons)
+5. **Python**: NOT included in the image — uv/uvx installs prebuilt CPython (3.10–3.14, armv7 gnueabihf) at runtime, on demand
+6. **Image size**: ~161 MB total, ~128 MB root filesystem
 7. **Documentation**: Fully self-documenting with BusyBox man applet and BusyBox verbose help
 8. **Root partition**: Auto-expands on first boot via S00resize → reboot → S01resize_fs
 9. **Static config files**: All init scripts and config files are in `rootfs_overlay/`, post-build.sh only does dynamic operations (cleanup, permissions, CA certs)
@@ -21,20 +21,20 @@ This file provides guidance to LLM agents when working with code in this reposit
 
 ## Project Overview
 
-This is a **Buildroot-based embedded Linux system** designed for the **Raspberry Pi Zero 2W**. The configuration creates a minimalist yet developer-friendly distribution with Python 3, HTTPS support, SQLite, and essential development tools.
+This is a **Buildroot-based embedded Linux system** designed for the **Raspberry Pi Zero 2W**. The configuration creates a minimalist yet developer-friendly distribution with uv-powered Python at runtime, HTTPS support, SQLite, and essential development tools.
 
 **Software Versions:**
 - Buildroot: 2025.02.12
 - Linux Kernel: Raspberry Pi 6.12.y (LTS)
-- Toolchain: GCC 13.4.0, musl libc
-- Python: 3.12 with pip
+- Toolchain: GCC 13.4.0, glibc 2.41
+- Python: none baked in; managed at runtime by uv
 - Documentation: BusyBox man applet, less, comprehensive offline help system
 
 **Key Features:**
 - ARM Cortex-A53 optimization with NEON/VFPv4
-- Size-optimized build (~129 MB image, ~96 MB root filesystem)
+- Size-optimized build (~161 MB image, ~128 MB root filesystem)
 - Fully self-documenting with man pages and built-in help
-- Python 3.12 with pip, SSL/TLS, SQLite
+- Python development via uv at runtime (no interpreter in the image)
 - WiFi configurable via iwd PSK file — see `rootfs_overlay/var/lib/iwd/YourNetwork.psk.example`
 - HTTPS-enabled tools (git, curl, wget with OpenSSL)
 - SSH access via Dropbear
@@ -78,8 +78,6 @@ rpi-zero-2w-build/
 │   │       ├── var/lib/iwd/YourNetwork.psk.example # WiFi credential template
 │   │       └── root/
 │   │           ├── .profile       # Shell environment
-│   │           ├── .pythonrc      # Python interactive config
-│   │           ├── .pip/pip.conf  # pip configuration
 │   ├── configs/                   # Buildroot defconfig
 │   │   └── raspberrypizero2w_minimal_defconfig
 │   ├── external.desc              # BR2_EXTERNAL name declaration
@@ -92,7 +90,7 @@ rpi-zero-2w-build/
 ### Build System
 
 **Buildroot** is the core build system that:
-1. Cross-compiles the toolchain (GCC 13.4.0, musl libc)
+1. Cross-compiles the toolchain (GCC 13.4.0, glibc 2.41)
 2. Builds the Linux kernel (Raspberry Pi 6.12.y fork)
 3. Builds all userspace packages
 4. Creates the root filesystem
@@ -123,12 +121,12 @@ rpi-zero-2w-build/
 - `S50crond`: Cron daemon
 
 **Package Optimization:**
-- musl libc instead of glibc (smaller footprint)
+- glibc 2.41 (chosen over musl so the prebuilt armv7 `uv` binaries run and manylinux2014 armv7 wheels work; size compensated by aggressive stripping and locale purge)
 - Aggressive compiler flags: `-Os -march=armv8-a+crc -mtune=cortex-a53 -mfpu=neon-vfpv4`, LTO, Graphite, dead code elimination
 - LDFLAGS: `--gc-sections`, `--as-needed`, `-O1`
-- Binary stripping and locale purging (only C locale retained)
-- Python test modules and __pycache__ removed in post-build.sh
-- Static archives (.a) and libtool files (.la) removed
+- Binary stripping; locale purge with en_US.UTF-8 generated (C.UTF-8 built in)
+- No system Python in the image (uv fetches managed interpreters at runtime); docs, git, SQLite CLI remain
+- Shared-only libs (no static archives built; stray .a/.la swept by post-build)
 - Development files removed (include, pkgconfig)
 - **Documentation PRESERVED** (man pages, doc, info) for fully self-documenting system
 
@@ -141,8 +139,6 @@ rpi-zero-2w-build/
 cd buildroot
 make BR2_EXTERNAL=../br2-external-pizero2w raspberrypizero2w_minimal_defconfig
 
-# Remove legacy flag (workaround for Buildroot 2025.08)
-sed -i '/^BR2_LEGACY=/d' .config
 
 # Build everything (use all CPU cores)
 make -j$(nproc)
@@ -150,7 +146,6 @@ make -j$(nproc)
 # Build output: buildroot/output/images/sdcard.img
 ```
 
-**Note:** The `BR2_LEGACY` flag removal is a temporary workaround for Buildroot 2025.08 compatibility.
 
 ### Modifying Configuration
 
@@ -239,9 +234,9 @@ make
 
 **post-build.sh** (br2-external-pizero2w/board/raspberrypizero2w/post-build.sh) runs after root filesystem is assembled but before image creation. It is intentionally minimal (~75 lines) and only performs dynamic operations:
 - Removes development files (includes, static libraries, pkgconfig)
-- Cleans Python cache and test files (__pycache__, test, tests, *.pyc)
+- (No Python cleanup needed since system Python was removed)
 - **Preserves documentation** (man pages, doc, info) for self-documenting system
-- Creates directories (/root/.ssh, /var/lib/iwd, /root/.pip, /boot)
+- Creates directories (/root/.ssh, /var/lib/iwd, /boot)
 - Creates symlink /var/lock → /run/lock
 - Sets permissions (chmod 700 for /root and .ssh)
 - Updates shadow file timestamp (required for BusyBox login)
@@ -252,7 +247,7 @@ make
 **Static configuration files** are in `rootfs_overlay/` (not generated by post-build.sh):
 - All init scripts (S00runlock, S00resize, S01resize_fs, S34wifi_module, S35wifi_init, S40iwd, S42ntp, S50crond)
 - /etc/issue, /etc/gitconfig, /etc/hosts, /etc/resolv.conf
-- /root/.profile, /root/.pythonrc, /root/.pip/pip.conf
+- /root/.profile
 - /etc/network/interfaces, /etc/iwd/main.conf
 - /var/lib/iwd/YourNetwork.psk.example (WiFi credential template)
 
@@ -281,17 +276,17 @@ After modifying these scripts, just run `make`.
 This build prioritizes **small size** and **fast boot** over features, with one exception:
 - Every package increases size and boot time
 - Consider if a feature is truly necessary
-- Python packages can be installed at runtime with pip
+- Python interpreters and packages are installed at runtime by uv (`uv python install`, `uv pip install`)
 - **Documentation is prioritized**: Man pages and comprehensive help are preserved (~8 MB) for excellent UX
 
-### Security Hardening Disabled
+### Security Hardening Enabled
 
-For size reasons, these security features are disabled:
-- SSP (stack smashing protection)
-- RELRO (relocation read-only)
-- FORTIFY_SOURCE
+Standard compiler/linker hardening is ON (compatibility/robustness over minimal size):
+- SSP: `-fstack-protector-strong`
+- RELRO: full (plus PIE)
+- FORTIFY_SOURCE=2
 
-**Important:** Only suitable for development/prototyping, not production.
+Still disabled for size: firewall (netfilter/iptables).
 
 ### Kernel Modules
 
@@ -358,29 +353,21 @@ Edit `rootfs_overlay/var/lib/iwd/<SSID>.psk` with [IPv4], [Settings], [Security]
 - `man iwctl` - Full manual page
 - `iwctl --help` - Quick command reference
 
-### Python Environment
+### Python Environment (uv)
 
-Python 3.12 is available with:
-- pip (package installer) and setuptools
-- SSL/TLS support for HTTPS (OpenSSL)
-- SQLite3 module with FTS3, STAT3, unlock notify, secure delete
-- Common stdlib modules: curses, zlib, bzip2, decimal, unicodedata
-- PYC compilation enabled (not PYC-only)
-- Test modules removed to save space
-- Pre-configured with:
-  - PYTHONSTARTUP pointing to ~/.pythonrc (tab completion and history)
-  - PYTHONDONTWRITEBYTECODE=1 (no .pyc files)
-  - SSL certificates configured
-
-Install packages with: `python3 -m pip install --no-cache-dir <package>`
-
-**Aliases available:** `python` → `python3`, `pip` → `python3 -m pip`
+No Python interpreter is baked into the image. uv/uvx (0.12.22) provides everything at runtime:
+- `uv python install 3.14` — downloads prebuilt armv7-unknown-linux-gnueabihf CPython (3.10–3.14 available; needs network)
+- `uv venv && uv pip install <pkg>` — virtual environments and fast package installs
+- `uvx <tool>` — run CLI tools without installing them
+- Prebuilt manylinux2014 armv7 wheels work on this system (glibc 2.41)
+- Interpreters land in `~/.local/share/uv/python/`; make sure the root partition has been auto-expanded (happens on first boot) before large installs
+- SSL certificates are configured system-wide (/etc/ssl/certs/ca-certificates.crt + SSL_CERT_FILE in .profile)
 
 ### Storage Management
 
 - Boot partition: 32MB FAT32 at `/dev/mmcblk0p1`, mounted at `/boot`
   - Contains: kernel (zImage), DTB, firmware (start.elf, fixup.dat), config.txt, cmdline.txt
-- Root partition: 96MB ext4 at `/dev/mmcblk0p2` (initial size, auto-expands on first boot)
+- Root partition: 128MB ext4 at `/dev/mmcblk0p2` (initial size, auto-expands on first boot)
   - Mounted with: defaults,noatime
 - Automatic partition expansion process:
   1. First boot: S00resize uses fdisk to expand partition, creates /var/lib/resize_pending, reboots
@@ -394,7 +381,7 @@ Install packages with: `python3 -m pip install --no-cache-dir <package>`
 
 ### Core System
 - **Init**: BusyBox init with mdev for dynamic device management
-- **C Library**: musl libc (lightweight, POSIX-compliant)
+- **C Library**: glibc 2.41 (shared + static)
 - **Compression**: zlib, bzip2, xz
 - **SSL/TLS**: OpenSSL with engines, CA certificates bundle
 - **Terminal**: ncurses library (no additional terminfo)
@@ -402,7 +389,7 @@ Install packages with: `python3 -m pip install --no-cache-dir <package>`
 
 ### Development Tools
 - **Languages**:
-  - Python 3.12 (with pip, setuptools, SSL, SQLite)
+  - uv/uvx 0.12.22 (custom BR2_EXTERNAL package: `br2-external-pizero2w/package/uv/`; prebuilt armv7 binaries from astral-sh/uv releases, requires glibc; no system Python — interpreters managed at runtime)
 - **Version Control**: git (with HTTPS/curl support)
 - **Editors**: vi (BusyBox full-featured implementation)
 
@@ -417,7 +404,7 @@ Install packages with: `python3 -m pip install --no-cache-dir <package>`
 - **Firmware**: Raspberry Pi WiFi firmware (brcmfmac for BCM43430)
 
 ### Database
-- **SQLite3**: Full-featured with FTS3, STAT3, unlock notify, secure delete
+- **SQLite3**: Full-featured with FTS3, unlock notify, secure delete (STAT3 compile flag was removed upstream)
 
 ### System Utilities
 - **BusyBox**: Comprehensive Unix utilities (custom minimal config with verbose help enabled)
@@ -444,8 +431,11 @@ Install packages with: `python3 -m pip install --no-cache-dir <package>`
 - The external tree name is `BR2_EXTERNAL_PIZERO2W` (from external.desc)
 
 ### Build fails with "legacy configuration"
-- Run: `sed -i '/^BR2_LEGACY=/d' .config` after loading defconfig
-- This is a known workaround for Buildroot 2025.08
+- The defconfig no longer carries symbols removed from this Buildroot
+  (`BR2_PACKAGE_RPI_WIFI_FIRMWARE` → `BR2_PACKAGE_BRCMFMAC_SDIO_FIRMWARE_RPI{,_WIFI}`,
+  `BR2_PACKAGE_SQLITE_STAT3` dropped — upstream removed the option)
+- If it reappears, a defconfig symbol was renamed/removed upstream: run
+  `make menuconfig`, set the modern equivalent, and `make savedefconfig` back
 
 ### Device doesn't boot
 1. Check serial console for kernel panic messages
@@ -469,7 +459,7 @@ make <package>
 
 ### WiFi firmware not loading
 - Check `dmesg | grep brcmfmac`
-- Verify `BR2_PACKAGE_RPI_WIFI_FIRMWARE=y` in defconfig
+- Verify `BR2_PACKAGE_BRCMFMAC_SDIO_FIRMWARE_RPI=y` and `BR2_PACKAGE_BRCMFMAC_SDIO_FIRMWARE_RPI_WIFI=y` in defconfig
 - Ensure firmware files exist in `/lib/firmware/brcm/`
 
 ## Environment and Toolchain Details
@@ -498,16 +488,14 @@ make <package>
 Pre-configured in /root/.profile:
 - **PS1**: Colorized prompt (green user@host, blue directory)
 - **EDITOR**: vi
-- **Python**: PYTHONSTARTUP, PYTHONDONTWRITEBYTECODE, PIP_DEFAULT_TIMEOUT
 - **SSL**: SSL_CERT_FILE, REQUESTS_CA_BUNDLE
-- **Aliases**:
-  - `python=python3`, `pip='python3 -m pip'`
+- **Locale**: LANG/LC_ALL=en_US.UTF-8 (generated via BR2_GENERATE_LOCALE; C.UTF-8 also built in)
 
 ### Man Pages
 Complete manual pages for all installed packages:
 ```bash
 man git                    # Git manual
-man python3                # Python manual
+# uv: no man page shipped — use 'uv --help' or https://docs.astral.sh/uv/
 man iwctl                  # WiFi management
 man sqlite3                # SQLite manual
 man -k <keyword>           # Search man pages

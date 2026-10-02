@@ -1,0 +1,14 @@
+config BR2_PACKAGE_UV
+	bool "uv"
+	depends on BR2_TOOLCHAIN_USES_GLIBC
+	depends on BR2_arm
+	help
+	  An extremely fast Python package and project manager, written
+	  in Rust (uv and uvx binaries).
+
+	  This package installs the prebuilt
+	  armv7-unknown-linux-gnueabihf release binaries from GitHub,
+	  so it requires a glibc toolchain (the binaries link against
+	  /lib/ld-linux-armhf.so.3) and does not work with musl.
+
+	  https://docs.astral.sh/uv/

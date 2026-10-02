@@ -27,18 +27,12 @@ find ${TARGET_DIR}/usr/lib -name "*.a" -delete 2>/dev/null || true
 find ${TARGET_DIR} -name "*.la" -delete 2>/dev/null || true
 echo "Preserving documentation (man pages, doc, info)..."
 
-# Remove Python test files and __pycache__ to save space
-echo "Cleaning Python cache and test files..."
-find ${TARGET_DIR}/usr/lib/python* -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
-find ${TARGET_DIR}/usr/lib/python* -type d -name "test" -exec rm -rf {} + 2>/dev/null || true
-find ${TARGET_DIR}/usr/lib/python* -type d -name "tests" -exec rm -rf {} + 2>/dev/null || true
-find ${TARGET_DIR}/usr/lib/python* -name "*.pyc" -delete 2>/dev/null || true
+# (system Python removed; interpreters are managed at runtime by uv)
 
 # Create directories that may not exist
 echo "Creating required directories..."
 mkdir -p ${TARGET_DIR}/root/.ssh
 mkdir -p ${TARGET_DIR}/var/lib/iwd
-mkdir -p ${TARGET_DIR}/root/.pip
 mkdir -p ${TARGET_DIR}/boot
 # Note: /etc/dropbear is created by dropbear package as symlink to /var/run/dropbear
 
